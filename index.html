@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#f2f2f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d10" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<title>语音说话助手</title>
+
+<script>
+/* ============================================================
+   配置区：每项 text 是按钮上显示的句子，file 是与本文件同目录的音频文件名
+   ============================================================ */
+const ITEMS = [
+  { text: "句子 1", file: "1.mp3" },
+  { text: "句子 2", file: "2.mp3" },
+  { text: "句子 3", file: "3.mp3" },
+  { text: "句子 4", file: "4.mp3" }
+];
+</script>
+
+<style>
+  :root {
+    --bg: #f2f2f5;
+    --fg: #111114;
+    --btn-bg: #ffffff;
+    --btn-text: #111114;
+    --border: #d8d8de;
+    --btn-playing-bg: #0a84ff;
+    --btn-playing-text: #ffffff;
+    --btn-playing-border: #0a84ff;
+    --overlay-bg: #000000;
+    --overlay-text: #ffffff;
+    --error-bg: #c0392b;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d0d10;
+      --fg: #f2f2f7;
+      --btn-bg: #1c1c21;
+      --btn-text: #f2f2f7;
+      --border: #34343c;
+      --btn-playing-bg: #30d158;
+      --btn-playing-text: #04240f;
+      --btn-playing-border: #30d158;
+      --overlay-bg: #ffffff;
+      --overlay-text: #000000;
+      --error-bg: #d13b2e;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+                 "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+  }
+
+  /* ---------- 2×2 按钮网格 ---------- */
+  #grid {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-right: calc(10px + env(safe-area-inset-right));
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    padding-left: calc(10px + env(safe-area-inset-left));
+  }
+
+  .speak-btn {
+    -webkit-appearance: none;
+    appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    padding: 10px;
+    border: 2px solid var(--border);
+    border-radius: 20px;
+    background: var(--btn-bg);
+    color: var(--btn-text);
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 32px;
+    line-height: 1.25;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    transition: background-color .12s ease, color .12s ease,
+                border-color .12s ease, transform .08s ease;
+  }
+
+  .speak-btn:active {
+    transform: scale(.985);
+  }
+
+  .speak-btn .label {
+    display: block;
+    width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .speak-btn.playing {
+    background: var(--btn-playing-bg);
+    border-color: var(--btn-playing-border);
+    color: var(--btn-playing-text);
+  }
+
+  /* ---------- 全屏大字显示层 ---------- */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    padding-top: calc(24px + env(safe-area-inset-top));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    background: var(--overlay-bg);
+    color: var(--overlay-text);
+    font-weight: 800;
+    font-size: 64px;
+    line-height: 1.15;
+    text-align: center;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  #overlay.show {
+    display: flex;
+  }
+
+  /* ---------- 底部错误提示 ---------- */
+  #error {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    display: none;
+    padding: 10px 14px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    background: var(--error-bg);
+    color: #ffffff;
+    font-size: 15px;
+    line-height: 1.35;
+    text-align: center;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    pointer-events: none;
+  }
+
+  #error.show {
+    display: block;
+  }
+</style>
+</head>
+
+<body>
+  <div id="grid"></div>
+  <div id="overlay" aria-hidden="true"></div>
+  <div id="error" role="alert"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var grid = document.getElementById('grid');
+  var overlay = document.getElementById('overlay');
+  var errorEl = document.getElementById('error');
+
+  var LONG_PRESS_MS = 600;
+
+  var audios = [];
+  var buttons = [];
+  var currentIndex = -1;
+  var playToken = 0;
+  var errorTimer = null;
+  var overlayShownAt = 0;
+  var longPressFired = false;
+  var pressTimer = null;
+  var resizeTimer = null;
+
+  /* ================= 工具函数 ================= */
+
+  // 粗略估算文本宽度（以“一个汉字”为单位）
+  function estimateUnits(text) {
+    var units = 0;
+    for (var i = 0; i < text.length; i++) {
+      var code = text.charCodeAt(i);
+      units += code > 0x2e7f ? 1 : 0.55;
+    }
+    return Math.max(units, 1);
+  }
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.classList.add('show');
+    clearTimeout(errorTimer);
+    errorTimer = setTimeout(hideError, 6000);
+  }
+
+  function hideError() {
+    errorEl.classList.remove('show');
+    clearTimeout(errorTimer);
+  }
+
+  function setPlaying(index) {
+    currentIndex = index;
+    for (var i = 0; i < buttons.length; i++) {
+      if (i === index) {
+        buttons[i].classList.add('playing');
+      } else {
+        buttons[i].classList.remove('playing');
+      }
+    }
+  }
+
+  function stopAudio(audio) {
+    try {
+      audio.pause();
+    } catch (e) { /* ignore */ }
+    try {
+      audio.currentTime = 0;
+    } catch (e) { /* ignore */ }
+  }
+
+  /* ================= 字体自适应 ================= */
+
+  function fitButtons() {
+    if (!buttons.length) return;
+    var rect = buttons[0].getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+
+    var innerW = Math.max(rect.width - 24, 24);
+    var innerH = Math.max(rect.height - 24, 24);
+
+    for (var i = 0; i < buttons.length; i++) {
+      var units = estimateUnits(ITEMS[i].text);
+      var size = Math.sqrt((innerW * innerH) / (1.32 * units)) * 0.92;
+      size = Math.min(size, innerW * 0.85, 64);
+      size = Math.max(size, 12);
+      buttons[i].style.fontSize = size.toFixed(1) + 'px';
+    }
+  }
+
+  function fitOverlay(text) {
+    var w = Math.max(window.innerWidth - 56, 24);
+    var h = Math.max(window.innerHeight - 56, 24);
+    var units = estimateUnits(text);
+    var size = Math.sqrt((w * h) / (1.2 * units)) * 0.9;
+    size = Math.min(size, w * 0.8, 200);
+    size = Math.max(size, 20);
+    overlay.style.fontSize = size.toFixed(1) + 'px';
+  }
+
+  /* ================= 播放逻辑 ================= */
+
+  function playItem(index) {
+    var token = ++playToken;
+    var audio = audios[index];
+    var item = ITEMS[index];
+
+    // 停止其它音频
+    for (var i = 0; i < audios.length; i++) {
+      if (i !== index) stopAudio(audios[i]);
+    }
+    // 当前音频从头开始
+    stopAudio(audio);
+
+    setPlaying(index);
+
+    var result;
+    try {
+      result = audio.play();
+    } catch (err) {
+      if (token === playToken) {
+        setPlaying(-1);
+        showError('无法播放 ' + item.file + '：' +
+          (err && err.message ? err.message : String(err)));
+      }
+      return;
+    }
+
+    if (result && typeof result.then === 'function') {
+      result.then(function () {
+        if (token !== playToken) return;
+        hideError();
+      }).catch(function (err) {
+        if (token !== playToken) return;
+        setPlaying(-1);
+        showError('播放失败（' + item.file + '）：' +
+          (err && err.message ? err.message : String(err)));
+      });
+    }
+  }
+
+  /* ================= 全屏大字 ================= */
+
+  function openOverlay(index) {
+    var text = ITEMS[index].text;
+    overlay.textContent = text;
+    fitOverlay(text);
+    overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
+    overlayShownAt = Date.now();
+    if (navigator.vibrate) {
+      try { navigator.vibrate(20); } catch (e) { /* ignore */ }
+    }
+  }
+
+  function closeOverlay() {
+    overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+
+  overlay.addEventListener('click', function () {
+    if (Date.now() - overlayShownAt < 300) return;
+    closeOverlay();
+  });
+
+  /* ================= 创建按钮与音频 ================= */
+
+  for (var idx = 0; idx < ITEMS.length; idx++) {
+    (function (i) {
+      var item = ITEMS[i];
+
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'speak-btn';
+      btn.setAttribute('data-index', String(i));
+
+      var label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = item.text;
+      btn.appendChild(label);
+      grid.appendChild(btn);
+      buttons.push(btn);
+
+      var audio = new Audio();
+      audio.preload = 'auto';
+      audio.src = item.file;
+      try { audio.load(); } catch (e) { /* ignore */ }
+      audio.addEventListener('ended', function () {
+        if (currentIndex === i) setPlaying(-1);
+      });
+      audio.addEventListener('error', function () {
+        if (currentIndex === i) setPlaying(-1);
+      });
+      audios.push(audio);
+
+      // --- 长按检测 ---
+      btn.addEventListener('pointerdown', function () {
+        longPressFired = false;
+        clearTimeout(pressTimer);
+        pressTimer = setTimeout(function () {
+          pressTimer = null;
+          longPressFired = true;
+          openOverlay(i);
+        }, LONG_PRESS_MS);
+      });
+
+      function cancelPress() {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+
+      btn.addEventListener('pointerup', cancelPress);
+      btn.addEventListener('pointercancel', cancelPress);
+      btn.addEventListener('pointerleave', cancelPress);
+
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        cancelPress();
+        if (longPressFired) {
+          longPressFired = false;
+          return; // 长按已触发，不再播放
+        }
+        playItem(i);
+      });
+
+      btn.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+      });
+    })(idx);
+  }
+
+  /* ================= 全局禁用系统菜单 / 选择 ================= */
+
+  document.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+  }, false);
+
+  document.addEventListener('selectstart', function (e) {
+    e.preventDefault();
+  }, false);
+
+  document.addEventListener('dragstart', function (e) {
+    e.preventDefault();
+  }, false);
+
+  /* ================= 尺寸变化 ================= */
+
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      fitButtons();
+      if (overlay.classList.contains('show')) {
+        fitOverlay(overlay.textContent);
+      }
+    }, 150);
+  });
+
+  window.addEventListener('orientationchange', function () {
+    setTimeout(function () {
+      fitButtons();
+      if (overlay.classList.contains('show')) {
+        fitOverlay(overlay.textContent);
+      }
+    }, 300);
+  });
+
+  /* ================= 初始化 ================= */
+
+  fitButtons();
+  // 字体/布局稳定后再算一次
+  window.addEventListener('load', fitButtons);
+  setTimeout(fitButtons, 60);
+  setTimeout(fitButtons, 300);
+
+})();
+</script>
+</body>
+</html>
